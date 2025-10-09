@@ -3,6 +3,7 @@ import { randomUUID, createHash } from 'crypto'
 import Replicate from 'replicate'
 
 import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseRouteClient } from '@/lib/supabase-route'
 
 export const runtime = 'nodejs'
 
@@ -174,6 +175,15 @@ async function resolveReplicateOutput(
 
 export async function POST(request: Request) {
   try {
+    const routeClient = await getSupabaseRouteClient()
+    const {
+      data: { user },
+    } = await routeClient.auth.getUser()
+
+    if (!user) {
+      return NextResponse.json({ error: 'Non autorisé.' }, { status: 401 })
+    }
+
     const supabase = getSupabaseClient()
     const formData = await request.formData()
     const image = formData.get('image')
@@ -254,6 +264,12 @@ export async function POST(request: Request) {
         console.warn('Failed to parse REPLICATE_EXTRA_INPUTS:', error)
       }
     }
+
+    // Debug: Log the exact input being sent to Replicate
+    console.log('🔍 Replicate Model:', replicateModel)
+    console.log('🔍 Replicate Input:', JSON.stringify(replicateInput, null, 2))
+    console.log('🔍 Image URL being sent:', imageInputValue)
+    console.log('🔍 Prompt being sent:', prompt.trim())
 
     const replicateOutput = await replicate.run(replicateModel, {
       input: replicateInput,
@@ -358,6 +374,7 @@ export async function POST(request: Request) {
       output_image_url: outputImageUrl,
       prompt,
       status: 'completed',
+      user_id: user.id,
     })
 
     if (insertError) {
