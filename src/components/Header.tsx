@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
@@ -7,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext'
 export function Header() {
   const pathname = usePathname()
   const auth = useAuth()
+  const [mounted, setMounted] = useState(false)
   
   // Handle SSR case where auth context might not be available
   const user = auth?.user ?? null
@@ -14,6 +16,10 @@ export function Header() {
   const signOut = auth?.signOut ?? (async () => {})
 
   const isActive = (path: string) => pathname === path
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   return (
     <header className="mb-10 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-6 py-4 backdrop-blur">
@@ -30,7 +36,9 @@ export function Header() {
         >
           Tableau de bord
         </Link>
-        {loading ? (
+        {!mounted ? (
+          <div className="ml-4 h-9 w-32 animate-pulse rounded-full bg-white/10"></div>
+        ) : loading ? (
           <span className="ml-4 text-xs text-slate-300">Chargement…</span>
         ) : user ? (
           <button
