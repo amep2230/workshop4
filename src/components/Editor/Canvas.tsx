@@ -1,6 +1,10 @@
 import React from 'react';
 
-const Canvas: React.FC<{ imageUrl: string | null }> = ({ imageUrl }) => {
+type CanvasProps = {
+    imageUrl?: string | null;
+};
+
+const Canvas: React.FC<CanvasProps> = ({ imageUrl = null }) => {
     return (
         <div className="canvas-container">
             {imageUrl ? (
