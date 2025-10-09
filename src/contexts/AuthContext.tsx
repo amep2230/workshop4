@@ -19,11 +19,19 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
-  const [supabase] = useState(() => getSupabaseBrowserClient())
+  const [supabase] = useState(() => {
+    // Only create the client in the browser
+    if (typeof window === 'undefined') {
+      return null
+    }
+    return getSupabaseBrowserClient()
+  })
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!supabase) return
+
     let isMounted = true
 
     supabase.auth.getSession().then(({ data }) => {
@@ -60,40 +68,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [supabase, router])
 
-  const value = useMemo<AuthContextValue>(() => ({
-    supabase,
-    session,
-    user: session?.user ?? null,
-    loading,
-    async signIn({ email, password }) {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) {
-        return { error: error.message }
-      }
-      router.refresh()
-      return {}
-    },
-    async signUp({ email, password }) {
-      const { error } = await supabase.auth.signUp({ email, password })
-      if (error) {
-        return { error: error.message }
-      }
-      router.refresh()
-      return {}
-    },
-    async signOut() {
-      await supabase.auth.signOut()
-      router.refresh()
-    },
-  }), [supabase, session, loading, router])
+  const value = useMemo<AuthContextValue | undefined>(() => {
+    if (!supabase) return undefined
+
+    return {
+      supabase,
+      session,
+      user: session?.user ?? null,
+      loading,
+      async signIn({ email, password }) {
+        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        if (error) {
+          return { error: error.message }
+        }
+        router.refresh()
+        return {}
+      },
+      async signUp({ email, password }) {
+        const { error } = await supabase.auth.signUp({ email, password })
+        if (error) {
+          return { error: error.message }
+        }
+        router.refresh()
+        return {}
+      },
+      async signOut() {
+        await supabase.auth.signOut()
+        router.refresh()
+      },
+    }
+  }, [supabase, session, loading, router])
+
+  if (!value) {
+    // Return a loading state when on the server
+    return <>{children}</>
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {
   const context = useContext(AuthContext)
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider')
-  }
+  // Allow undefined context during SSR
   return context
 }

@@ -6,7 +6,12 @@ import { useAuth } from '@/contexts/AuthContext'
 
 export function Header() {
   const pathname = usePathname()
-  const { user, loading, signOut } = useAuth()
+  const auth = useAuth()
+  
+  // Handle SSR case where auth context might not be available
+  const user = auth?.user ?? null
+  const loading = auth?.loading ?? false
+  const signOut = auth?.signOut ?? (async () => {})
 
   const isActive = (path: string) => pathname === path
 

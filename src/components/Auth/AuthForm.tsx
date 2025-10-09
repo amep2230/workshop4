@@ -16,7 +16,11 @@ type AuthFormProps = {
 }
 
 export function AuthForm({ defaultTab = 'login' }: AuthFormProps) {
-  const { signIn, signUp, loading } = useAuth()
+  const auth = useAuth()
+  const signIn = auth?.signIn ?? (async () => ({ error: 'Auth not available' }))
+  const signUp = auth?.signUp ?? (async () => ({ error: 'Auth not available' }))
+  const loading = auth?.loading ?? false
+  
   const [tab, setTab] = useState<Tab>(defaultTab)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
