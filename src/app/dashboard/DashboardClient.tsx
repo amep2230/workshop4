@@ -4,6 +4,7 @@ import { useState, useTransition, useEffect } from 'react'
 import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { getStripe } from '@/lib/stripe-client'
+import { prepareImageForUpload } from '@/lib/image-compression'
 
 export type DashboardProject = {
   id: string
@@ -56,12 +57,30 @@ export default function DashboardClient({ projects }: DashboardClientProps) {
       return
     }
 
+    // Vérifier la taille de l'image (limite à 4 MB pour Vercel)
+    const maxSizeInMB = 4;
+    const maxSizeInBytes = maxSizeInMB * 1024 * 1024;
+    if (image.size > maxSizeInBytes) {
+      setError(`L'image est trop grande (${(image.size / 1024 / 1024).toFixed(2)} MB). Limite : ${maxSizeInMB} MB.`)
+      return
+    }
+
     try {
       setUploading(true)
 
+      // Préparer l'image (compression si nécessaire)
+      let imageToUpload = image;
+      try {
+        imageToUpload = await prepareImageForUpload(image, 4);
+        console.log(`Image préparée : ${(imageToUpload.size / 1024 / 1024).toFixed(2)} MB`);
+      } catch (compressionError) {
+        console.error('Erreur lors de la compression:', compressionError);
+        throw new Error('Impossible de préparer l\'image pour l\'upload');
+      }
+
       // Étape 1 : Créer un projet pending avec l'image uploadée dans Supabase
       const uploadFormData = new FormData()
-      uploadFormData.append('image', image)
+      uploadFormData.append('image', imageToUpload)
       uploadFormData.append('prompt', prompt.trim())
 
       const uploadResponse = await fetch('/api/upload-and-create-project', {
@@ -201,6 +220,9 @@ export default function DashboardClient({ projects }: DashboardClientProps) {
               className="w-full rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-100 file:mr-4 file:rounded-md file:border-0 file:bg-blue-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-blue-600"
               disabled={disableActions}
             />
+            <p className="text-xs text-slate-400">
+              Taille maximale : 4 MB. Formats supportés : JPG, PNG, WebP
+            </p>
           </div>
 
           <div className="space-y-2">

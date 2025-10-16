@@ -3,6 +3,10 @@ import { getSupabaseRouteClient } from '@/lib/supabase-route';
 import { getSupabaseClient } from '@/lib/supabase';
 import { randomUUID } from 'crypto';
 
+// Configuration de la route pour augmenter la limite de body size
+export const runtime = 'nodejs';
+export const maxDuration = 60; // 60 secondes max
+
 const inputBucket = process.env.SUPABASE_INPUT_BUCKET || 'input-images';
 const inputFolder = process.env.SUPABASE_INPUT_FOLDER ?? '';
 
