@@ -21,7 +21,7 @@ export default async function DashboardPage() {
 
   const { data, error } = await supabase
     .from('projects')
-    .select('id, prompt, input_image_url, output_image_url, status, created_at')
+    .select('id, prompt, input_image_url, output_image_url, status, created_at, payment_status')
     .eq('user_id', session.user.id)
     .order('created_at', { ascending: false })
 

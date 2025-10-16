@@ -35,6 +35,41 @@ function extractStoragePath(url: string | null | undefined, bucket: string) {
   }
 }
 
+export async function GET(
+  _request: Request,
+  context: { params: { id: string } }
+) {
+  const { id } = context.params
+
+  const routeClient = await getSupabaseRouteClient()
+  const {
+    data: { user },
+  } = await routeClient.auth.getUser()
+
+  if (!user) {
+    return NextResponse.json({ error: 'Non autorisé.' }, { status: 401 })
+  }
+
+  const supabase = getSupabaseClient()
+
+  const { data: project, error: projectError } = await supabase
+    .from('projects')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (projectError || !project) {
+    console.error('Unable to locate project', projectError)
+    return NextResponse.json({ error: 'Projet introuvable.' }, { status: 404 })
+  }
+
+  if (project.user_id && project.user_id !== user.id) {
+    return NextResponse.json({ error: 'Accès refusé.' }, { status: 403 })
+  }
+
+  return NextResponse.json(project)
+}
+
 export async function DELETE(
   _request: Request,
   context: { params: { id: string } }

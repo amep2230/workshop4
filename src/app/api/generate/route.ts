@@ -188,6 +188,7 @@ export async function POST(request: Request) {
     const formData = await request.formData()
     const image = formData.get('image')
     const prompt = formData.get('prompt')
+    const projectId = formData.get('projectId') as string | null
 
     if (!(image instanceof File)) {
       return NextResponse.json(
@@ -201,6 +202,38 @@ export async function POST(request: Request) {
         { error: 'Prompt is required.' },
         { status: 400 }
       )
+    }
+
+    // SÉCURITÉ : Vérifier le paiement avant de générer
+    if (projectId) {
+      const { data: project, error: projectError } = await supabase
+        .from('projects')
+        .select('payment_status, user_id')
+        .eq('id', projectId)
+        .single()
+
+      if (projectError || !project) {
+        return NextResponse.json(
+          { error: 'Projet introuvable.' },
+          { status: 404 }
+        )
+      }
+
+      // Vérifier que le projet appartient à l'utilisateur
+      if (project.user_id !== user.id) {
+        return NextResponse.json(
+          { error: 'Non autorisé pour ce projet.' },
+          { status: 403 }
+        )
+      }
+
+      // Vérifier que le paiement est validé
+      if (project.payment_status !== 'paid') {
+        return NextResponse.json(
+          { error: 'Paiement requis pour générer l\'image.' },
+          { status: 402 }
+        )
+      }
     }
 
   const inputPath = createStorageKey(inputFolder, image.name)
@@ -383,6 +416,21 @@ export async function POST(request: Request) {
         { error: 'Failed to save project record.' },
         { status: 500 }
       )
+    }
+
+    // Si un projectId existe, mettre à jour le projet avec l'output_image_url et le status
+    if (projectId) {
+      const { error: updateError } = await supabase
+        .from('projects')
+        .update({
+          output_image_url: outputImageUrl,
+          status: 'completed',
+        })
+        .eq('id', projectId)
+
+      if (updateError) {
+        console.error('Failed to update project with output:', updateError)
+      }
     }
 
     return NextResponse.json({ outputUrl: outputImageUrl })

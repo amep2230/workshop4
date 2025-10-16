@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import Image from 'next/image'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { getStripe } from '@/lib/stripe-client'
 
 export type DashboardProject = {
   id: string
@@ -11,6 +12,7 @@ export type DashboardProject = {
   output_image_url: string
   status: string | null
   created_at: string
+  payment_status?: string | null
 }
 
 type DashboardClientProps = {
@@ -19,13 +21,25 @@ type DashboardClientProps = {
 
 export default function DashboardClient({ projects }: DashboardClientProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [image, setImage] = useState<File | null>(null)
   const [prompt, setPrompt] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
   const [uploading, setUploading] = useState(false)
+  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null)
   const disableActions = uploading || pending
+
+  // Vérifier si on revient d'un paiement Stripe
+  useEffect(() => {
+    const sessionId = searchParams.get('session_id')
+    if (sessionId) {
+      setSuccess('Paiement confirmé ! Vous pouvez maintenant lancer la génération.')
+      // Nettoyer l'URL
+      router.replace('/dashboard')
+    }
+  }, [searchParams, router])
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -42,12 +56,83 @@ export default function DashboardClient({ projects }: DashboardClientProps) {
       return
     }
 
-    const formData = new FormData()
-    formData.append('image', image)
-    formData.append('prompt', prompt.trim())
+    try {
+      setUploading(true)
+
+      // Étape 1 : Créer un projet pending avec l'image uploadée dans Supabase
+      const uploadFormData = new FormData()
+      uploadFormData.append('image', image)
+      uploadFormData.append('prompt', prompt.trim())
+
+      const uploadResponse = await fetch('/api/upload-and-create-project', {
+        method: 'POST',
+        body: uploadFormData,
+      })
+
+      if (!uploadResponse.ok) {
+        const payload = await uploadResponse.json().catch(() => ({ error: 'Erreur réseau' }))
+        throw new Error(payload.error || 'Impossible de créer le projet')
+      }
+
+      const { projectId } = await uploadResponse.json()
+
+      // Étape 2 : Créer la session Stripe Checkout
+      const checkoutResponse = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId }),
+      })
+
+      if (!checkoutResponse.ok) {
+        const payload = await checkoutResponse.json().catch(() => ({ error: 'Erreur réseau' }))
+        throw new Error(payload.error || 'Impossible de créer la session de paiement')
+      }
+
+      const { url } = await checkoutResponse.json()
+
+      // Étape 3 : Rediriger vers Stripe Checkout
+      if (url) {
+        window.location.href = url
+      } else {
+        throw new Error('URL de paiement introuvable')
+      }
+    } catch (generationError) {
+      setError(
+        generationError instanceof Error
+          ? generationError.message
+          : 'Une erreur est survenue.'
+      )
+      setUploading(false)
+    }
+  }
+
+  const handleGenerate = async (projectId: string) => {
+    setError(null)
+    setSuccess(null)
 
     try {
       setUploading(true)
+
+      // Récupérer les détails du projet
+      const projectResponse = await fetch(`/api/projects/${projectId}`)
+      if (!projectResponse.ok) {
+        throw new Error('Impossible de récupérer le projet')
+      }
+
+      const project = await projectResponse.json()
+
+      // Créer un FormData avec les infos du projet
+      const formData = new FormData()
+      
+      // Télécharger l'image depuis l'URL et la réuploader
+      const imageResponse = await fetch(project.input_image_url)
+      const imageBlob = await imageResponse.blob()
+      const imageFile = new File([imageBlob], 'image.png', { type: imageBlob.type })
+      
+      formData.append('image', imageFile)
+      formData.append('prompt', project.prompt)
+      formData.append('projectId', projectId)
+
       const response = await fetch('/api/generate', {
         method: 'POST',
         body: formData,
@@ -55,12 +140,10 @@ export default function DashboardClient({ projects }: DashboardClientProps) {
 
       if (!response.ok) {
         const payload = await response.json().catch(() => ({ error: 'Erreur réseau' }))
-        throw new Error(payload.error || 'Impossible de générer l’image')
+        throw new Error(payload.error || 'Impossible de générer l\'image')
       }
 
-      setSuccess('Transformation réussie ! Vos résultats apparaîtront ci-dessous.')
-      setImage(null)
-      setPrompt('')
+      setSuccess('Transformation réussie !')
       startTransition(() => router.refresh())
     } catch (generationError) {
       setError(
@@ -152,7 +235,7 @@ export default function DashboardClient({ projects }: DashboardClientProps) {
             disabled={disableActions}
             className="inline-flex items-center justify-center rounded-md bg-blue-500 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {uploading ? 'Génération en cours…' : 'Générer'}
+            {uploading ? 'Redirection vers le paiement…' : 'Générer (2,50 €)'}
           </button>
         </form>
       </section>
@@ -195,30 +278,52 @@ export default function DashboardClient({ projects }: DashboardClientProps) {
                 </button>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="grid gap-3 sm:grid-cols-2">
                 <figure className="relative aspect-square overflow-hidden rounded-xl border border-white/10 bg-black/30">
                   <Image
                     src={project.input_image_url}
-                    alt="Image d’origine"
+                    alt="Image d'origine"
                     fill
                     className="object-cover"
                   />
                 </figure>
-                <figure className="relative aspect-square overflow-hidden rounded-xl border border-white/10 bg-black/30">
-                  <Image
-                    src={project.output_image_url}
-                    alt="Résultat généré"
-                    fill
-                    className="object-cover"
-                  />
-                </figure>
+                {project.output_image_url ? (
+                  <figure className="relative aspect-square overflow-hidden rounded-xl border border-white/10 bg-black/30">
+                    <Image
+                      src={project.output_image_url}
+                      alt="Résultat généré"
+                      fill
+                      className="object-cover"
+                    />
+                  </figure>
+                ) : (
+                  <div className="relative aspect-square overflow-hidden rounded-xl border border-white/10 bg-black/30 flex items-center justify-center">
+                    <p className="text-sm text-slate-400">En attente de génération</p>
+                  </div>
+                )}
               </div>
 
-              {project.status && (
-                <span className="self-start rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200">
-                  {project.status}
-                </span>
-              )}
+              {/* Afficher le statut et bouton de génération */}
+              <div className="flex items-center justify-between gap-3">
+                {project.status && (
+                  <span className="self-start rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200">
+                    {project.status}
+                  </span>
+                )}
+                {project.payment_status === 'paid' && !project.output_image_url && (
+                  <button
+                    type="button"
+                    onClick={() => handleGenerate(project.id)}
+                    disabled={uploading}
+                    className="rounded-md bg-green-500 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {uploading ? 'Génération...' : 'Lancer la génération'}
+                  </button>
+                )}
+                {project.payment_status === 'pending' && (
+                  <span className="text-xs text-yellow-300">En attente de paiement</span>
+                )}
+              </div>
             </article>
           ))}
         </div>
